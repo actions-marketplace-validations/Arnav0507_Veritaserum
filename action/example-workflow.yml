@@ -1,0 +1,28 @@
+# Example: add this as .github/workflows/veritaserum.yml in your repo.
+name: AI Context Drift
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF annotations
+
+jobs:
+  context-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify AI context
+        id: veritaserum
+        uses: veritaserum/veritaserum-action@v0
+        with:
+          repo: "."
+          fail-on-drift: "true"
+
+      # Show drift inline on the PR diff (annotations on the source context file).
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: veritaserum.sarif

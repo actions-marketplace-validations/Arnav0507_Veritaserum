@@ -1,0 +1,101 @@
+schema_version: 1
+claims:
+  - id: af-agents-exists
+    text: "AGENTS.md exists."
+    type: file_exists
+    severity: error
+    source: "AGENTS.md#L1"
+    spec: { path: AGENTS.md }
+    gold: VERIFIED
+
+  - id: af-missing-file
+    text: "SECURITY.md exists."
+    type: file_exists
+    severity: error
+    spec: { path: SECURITY.md }
+    gold: DRIFTED
+
+  - id: af-pkg-dir
+    text: "pkg/ exists."
+    type: dir_exists
+    severity: error
+    spec: { path: pkg }
+    gold: VERIFIED
+
+  - id: af-missing-dir
+    text: "graphql/ exists."
+    type: dir_exists
+    severity: error
+    spec: { path: graphql }
+    gold: DRIFTED
+
+  - id: af-main-servermain
+    text: "main.go delegates to rest.ServerMain."
+    type: contains
+    severity: error
+    spec: { file: main.go, pattern: "ServerMain" }
+    gold: VERIFIED
+
+  - id: af-port
+    text: "Default public port is :4984."
+    type: constant
+    severity: error
+    spec:
+      globs: ["config.go"]
+      pattern: '\bPort\s+=\s+"([^"]+)"'
+      expect: ":4984"
+    gold: VERIFIED
+
+  - id: af-admin-drift
+    text: "Admin port is :4985."
+    type: constant
+    severity: error
+    spec:
+      globs: ["config.go"]
+      pattern: 'AdminPort\s+=\s+"([^"]+)"'
+      expect: ":4985"
+    gold: DRIFTED
+
+  - id: af-testify
+    text: "Depends on stretchr/testify."
+    type: dependency
+    severity: error
+    spec: { manifest: go.mod, pattern: "stretchr/testify" }
+    gold: VERIFIED
+
+  - id: af-gin-missing
+    text: "Depends on gin-gonic/gin."
+    type: dependency
+    severity: error
+    spec: { manifest: go.mod, pattern: "gin-gonic/gin" }
+    gold: DRIFTED
+
+  - id: af-kebab
+    text: "UI file names use kebab-case."
+    type: naming
+    severity: warn
+    spec:
+      globs: ["ui/*.ts"]
+      name_regex: '^[a-z0-9]+(-[a-z0-9]+)*$'
+    gold: DRIFTED
+
+  - id: af-no-encoding-json
+    text: "Never use encoding/json directly; use base.JSONMarshal."
+    type: forbidden
+    severity: error
+    spec:
+      globs: ["**/*.go"]
+      pattern: '\bjson\.(Marshal|Unmarshal)\b'
+      exclude_tests: true
+    gold: DRIFTED
+
+  - id: af-no-printf
+    text: "Never use fmt.Printf; use base.Infof."
+    type: forbidden
+    severity: error
+    spec:
+      globs: ["**/*.go"]
+      pattern: '\bfmt\.Printf\b'
+      exclude_tests: true
+      comment_aware: true
+    gold: VERIFIED
