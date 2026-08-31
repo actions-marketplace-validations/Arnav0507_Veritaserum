@@ -1,0 +1,14 @@
+schema_version: 1
+context_files:
+  - AGENTS.md
+claims:
+  - examples/claims.yml
+global_exclude:
+  - .git
+  - .venv
+  - build
+  - dist
+  - node_modules
+  - vendor
+severity_gate: error
+baseline: .veritaserum-baseline.json

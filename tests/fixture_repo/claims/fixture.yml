@@ -83,6 +83,7 @@ claims:
     text: "Never use encoding/json directly; use base.JSONMarshal."
     type: forbidden
     severity: error
+    source: "AGENTS.md#L4"
     spec:
       globs: ["**/*.go"]
       pattern: '\bjson\.(Marshal|Unmarshal)\b'

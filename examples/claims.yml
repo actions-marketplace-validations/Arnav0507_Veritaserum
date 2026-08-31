@@ -1,0 +1,20 @@
+schema_version: 1
+claims:
+  - id: instructions-name-policy
+    text: "Python test modules use a test_ prefix."
+    type: naming
+    severity: warn
+    source: "AGENTS.md#L12"
+    spec:
+      globs: ["tests/**/*.py"]
+      name_regex: "test_[a-z0-9_]+"
+  - id: instructions-no-print
+    text: "Production Python code does not call print directly."
+    type: forbidden
+    severity: error
+    source: "AGENTS.md#L18"
+    spec:
+      globs: ["src/**/*.py"]
+      pattern: "\\bprint\\s*\\("
+      exclude_tests: true
+      comment_aware: true

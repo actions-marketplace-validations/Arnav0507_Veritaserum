@@ -14,6 +14,7 @@ CONTEXT_FILES = ["AGENTS.md", ".github/copilot-instructions.md", "CLAUDE.md",
 
 
 def generate_claims(repo: Path) -> list[dict]:
+    repo = repo.resolve()
     claims: list[dict] = []
     # 1) existing context files
     for cf in CONTEXT_FILES:
@@ -26,7 +27,7 @@ def generate_claims(repo: Path) -> list[dict]:
             })
     # 2) node ecosystem
     pj = repo / "package.json"
-    if pj.exists():
+    if _inside_repo(repo, pj) and pj.is_file():
         data = _safe_json(pj)
         pm = data.get("packageManager")
         if isinstance(pm, str) and "@" in pm:
@@ -48,7 +49,7 @@ def generate_claims(repo: Path) -> list[dict]:
             })
     # 3) go ecosystem
     gomod = repo / "go.mod"
-    if gomod.exists():
+    if _inside_repo(repo, gomod) and gomod.is_file():
         for dep in _go_deps(gomod, 3):
             claims.append({
                 "id": f"gomod-{_slug(dep)}",
@@ -74,7 +75,7 @@ def _slug(s: str) -> str:
 def _safe_json(p: Path) -> dict:
     try:
         return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
 
 
@@ -98,5 +99,14 @@ def _source_dirs(repo: Path, n: int) -> list[str]:
     skip = {"node_modules", ".git", "dist", "build", "vendor", ".venv",
             "__pycache__", ".github", "docs", "test", "tests"}
     dirs = [p.name for p in sorted(repo.iterdir())
-            if p.is_dir() and p.name not in skip and not p.name.startswith(".")]
+            if p.is_dir() and _inside_repo(repo, p)
+            and p.name not in skip and not p.name.startswith(".")]
     return dirs[:n]
+
+
+def _inside_repo(repo: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(repo)
+    except ValueError:
+        return False
+    return True

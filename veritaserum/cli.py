@@ -26,7 +26,12 @@ def _cmd_check(a) -> int:
     try:
         cfg = load_config(repo, a.config)
         claims = load_claims(repo, cfg.claims)
-    except (SchemaError, ValueError) as e:
+        base = (
+            {}
+            if (a.no_baseline or a.update_baseline)
+            else load_baseline(repo, cfg.baseline)
+        )
+    except (SchemaError, OSError, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return EXIT_ERROR
     if not claims:
@@ -34,23 +39,39 @@ def _cmd_check(a) -> int:
               file=sys.stderr)
         return EXIT_ERROR
 
-    base = {} if (a.no_baseline or a.update_baseline) else load_baseline(repo, cfg.baseline)
-    rows = run(repo, claims, global_exclude=cfg.global_exclude, baseline=base,
-               severity_gate=cfg.severity_gate, naive=a.naive)
+    try:
+        rows = run(repo, claims, global_exclude=cfg.global_exclude, baseline=base,
+                   severity_gate=cfg.severity_gate, naive=a.naive)
+    except (OSError, UnicodeError, ValueError) as e:
+        print(f"error: could not check repository: {e}", file=sys.stderr)
+        return EXIT_ERROR
     summary = summarize(rows)
 
     if a.update_baseline:
-        p = write_baseline(repo, cfg.baseline, rows)
+        try:
+            p = write_baseline(repo, cfg.baseline, rows)
+        except OSError as e:
+            print(f"error: could not write baseline: {e}", file=sys.stderr)
+            return EXIT_ERROR
         print(f"wrote baseline: {p} ({len(rows)} claims, "
               f"{sum(1 for r in rows if r['all_violations'])} with violations)")
         return EXIT_OK
 
-    out = reporters.render(a.format, rows, summary, context_files=cfg.context_files)
-    if a.output:
-        Path(a.output).write_text(out + "\n", encoding="utf-8")
-        print(f"wrote {a.format} report: {a.output}")
-    else:
-        print(out)
+    try:
+        if a.sarif_output:
+            Path(a.sarif_output).write_text(
+                reporters.sarif(rows, summary, context_files=cfg.context_files) + "\n",
+                encoding="utf-8",
+            )
+        out = reporters.render(a.format, rows, summary, context_files=cfg.context_files)
+        if a.output:
+            Path(a.output).write_text(out + "\n", encoding="utf-8")
+            print(f"wrote {a.format} report: {a.output}")
+        else:
+            print(out)
+    except OSError as e:
+        print(f"error: could not write report: {e}", file=sys.stderr)
+        return EXIT_ERROR
 
     if a.dry_run or a.warn_only:
         return EXIT_OK
@@ -59,13 +80,19 @@ def _cmd_check(a) -> int:
 
 def _cmd_init(a) -> int:
     repo = Path(a.repo).resolve()
-    claims = scaffold.generate_claims(repo)
+    if not repo.is_dir():
+        print(f"init: repo not found: {repo}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        claims = scaffold.generate_claims(repo)
+    except (OSError, UnicodeError, ValueError) as e:
+        print(f"init: could not inspect repository: {e}", file=sys.stderr)
+        return EXIT_ERROR
     if not claims:
         print("init: nothing detectable to scaffold (no manifests/context files found).",
               file=sys.stderr)
         return EXIT_ERROR
     claims_dir = repo / "claims"
-    claims_dir.mkdir(exist_ok=True)
     claims_file = claims_dir / "generated.yml"
     cfg_file = repo / ".veritaserum.yml"
     if (claims_file.exists() or cfg_file.exists()) and not a.force:
@@ -73,17 +100,24 @@ def _cmd_init(a) -> int:
               file=sys.stderr)
         return EXIT_ERROR
 
-    doc = {"schema_version": 1, "claims": claims}
-    claims_file.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-    cfg = {
-        "schema_version": 1,
-        "context_files": [c["spec"]["path"] for c in claims if c["type"] == "file_exists"],
-        "claims": ["claims/**/*.yml", "claims/**/*.yaml", "claims/**/*.json"],
-        "global_exclude": DEFAULT_GLOBAL_EXCLUDE,
-        "severity_gate": "error",
-        "baseline": ".veritaserum-baseline.json",
-    }
-    cfg_file.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    try:
+        claims_dir.mkdir(exist_ok=True)
+        doc = {"schema_version": 1, "claims": claims}
+        claims_file.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+        cfg = {
+            "schema_version": 1,
+            "context_files": [
+                c["spec"]["path"] for c in claims if c["type"] == "file_exists"
+            ],
+            "claims": ["claims/**/*.yml", "claims/**/*.yaml", "claims/**/*.json"],
+            "global_exclude": DEFAULT_GLOBAL_EXCLUDE,
+            "severity_gate": "error",
+            "baseline": ".veritaserum-baseline.json",
+        }
+        cfg_file.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    except OSError as e:
+        print(f"init: could not write scaffold: {e}", file=sys.stderr)
+        return EXIT_ERROR
     print(f"init: wrote {claims_file.relative_to(repo)} ({len(claims)} claims) "
           f"and {cfg_file.name}")
     print("next: review the generated claims, then run `veritaserum check --repo .`")
@@ -101,6 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--config", default=None, help="path to .veritaserum.yml")
     c.add_argument("--format", choices=["human", "json", "sarif"], default="human")
     c.add_argument("--output", default=None, help="write report to file instead of stdout")
+    c.add_argument(
+        "--sarif-output",
+        default=None,
+        help="also write a SARIF report (useful with the human CI summary)",
+    )
     c.add_argument("--naive", action="store_true", help="disable excludes/comment-awareness (eval only)")
     c.add_argument("--dry-run", action="store_true", help="report but never fail")
     c.add_argument("--warn-only", action="store_true", help="report drift but exit 0")

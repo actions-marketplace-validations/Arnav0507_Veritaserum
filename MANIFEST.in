@@ -1,0 +1,6 @@
+include action.yml
+include .github/workflows/ci.yml
+graft action
+graft examples
+graft tests
+global-exclude __pycache__ *.py[cod]

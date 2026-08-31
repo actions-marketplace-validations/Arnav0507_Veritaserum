@@ -1,18 +1,31 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritaserum"
-version = "0.1.0"
+version = "0.2.0"
 description = "Testable AI instructions: verify AI context files against live code, in CI."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+authors = [{ name = "Arnav Goel" }]
+keywords = ["ai", "ci", "github-actions", "static-analysis"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = ["pyyaml>=6.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["build>=1.2", "pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/Arnav0507/veritaserum"
+Issues = "https://github.com/Arnav0507/veritaserum/issues"
 
 [project.scripts]
 veritaserum = "veritaserum.cli:main"
@@ -22,3 +35,4 @@ packages = ["veritaserum"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
