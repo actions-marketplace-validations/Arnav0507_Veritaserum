@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Verify AI context
         id: veritaserum
@@ -20,6 +22,18 @@ jobs:
           repo: "."
           fail-on-drift: "true"
           sarif-file: "veritaserum.sarif"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check affected claims on PR diff
+        run: |
+          python -m pip install --disable-pip-version-check \
+            "git+https://github.com/Arnav0507/Veritaserum@v0.3.0"
+          veritaserum affected --repo . \
+            --base "${{ github.event.pull_request.base.sha }}" \
+            --head "${{ github.event.pull_request.head.sha }}"
 
       # Show drift inline on the PR diff (annotations on the source context file).
       - name: Upload SARIF
