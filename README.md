@@ -79,6 +79,9 @@ veritaserum check --repo /tmp/demo-drift
 See [`examples/demo-repo/README.md`](examples/demo-repo/README.md) for the full
 walkthrough and a ready-to-copy GitHub Actions workflow.
 
+Live demo: [github.com/Arnav0507/veritaserum-demo](https://github.com/Arnav0507/veritaserum-demo)
+(with [PR #1](https://github.com/Arnav0507/veritaserum-demo/pull/1) showing drift detection in CI).
+
 ## Draft claims from prose
 
 `veritaserum suggest` uses an LLM to **propose** candidate claims from context
