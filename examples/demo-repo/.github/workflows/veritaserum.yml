@@ -24,10 +24,12 @@ jobs:
           sarif-file: "veritaserum.sarif"
 
       - uses: actions/setup-python@v5
+        if: ${{ always() && !cancelled() }}
         with:
           python-version: "3.12"
 
       - name: Check affected claims on PR diff
+        if: ${{ always() && !cancelled() }}
         run: |
           python -m pip install --disable-pip-version-check \
             "git+https://github.com/Arnav0507/Veritaserum@v0.3.0"
