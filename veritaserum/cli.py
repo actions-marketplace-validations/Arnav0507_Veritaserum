@@ -14,6 +14,7 @@ from .baseline import load_baseline, write_baseline
 from .runner import run, summarize
 from . import reporters
 from . import scaffold
+from . import suggest as suggest_module
 
 EXIT_OK, EXIT_DRIFT, EXIT_ERROR = 0, 1, 2
 
@@ -76,6 +77,58 @@ def _cmd_check(a) -> int:
     if a.dry_run or a.warn_only:
         return EXIT_OK
     return EXIT_DRIFT if summary["failed"] else EXIT_OK
+
+
+def _cmd_suggest(a) -> int:
+    repo = Path(a.repo).resolve()
+    if not repo.is_dir():
+        print(f"suggest: repo not found: {repo}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        result = suggest_module.suggest(
+            repo,
+            context_files=a.context or None,
+            input_path=Path(a.input).resolve() if a.input else None,
+            max_claims=a.max_claims,
+        )
+    except (FileNotFoundError, RuntimeError, SchemaError, OSError, UnicodeError) as e:
+        print(f"suggest: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    for message in result.rejected:
+        print(f"suggest: rejected {message}", file=sys.stderr)
+
+    if not result.accepted:
+        print("suggest: no valid claims produced", file=sys.stderr)
+        return EXIT_ERROR
+
+    document = suggest_module.claims_document(result.accepted)
+    rendered = yaml.safe_dump(document, sort_keys=False)
+    if a.output:
+        try:
+            output_path = Path(a.output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(rendered, encoding="utf-8")
+        except OSError as e:
+            print(f"suggest: could not write output: {e}", file=sys.stderr)
+            return EXIT_ERROR
+        print(
+            f"suggest: wrote {len(result.accepted)} claim(s) to {a.output} "
+            f"({len(result.rejected)} rejected)"
+        )
+    else:
+        print(rendered, end="")
+        if result.rejected:
+            print(
+                f"suggest: {len(result.rejected)} proposal(s) rejected "
+                "(see stderr)",
+                file=sys.stderr,
+            )
+    print(
+        "suggest: review the output before committing; verification stays deterministic",
+        file=sys.stderr,
+    )
+    return EXIT_OK
 
 
 def _cmd_init(a) -> int:
@@ -151,6 +204,35 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--repo", default=".")
     i.add_argument("--force", action="store_true")
     i.set_defaults(func=_cmd_init)
+
+    s = sub.add_parser(
+        "suggest",
+        help="draft typed claims from context prose (LLM proposes; schema validates)",
+    )
+    s.add_argument("--repo", default=".")
+    s.add_argument(
+        "--context",
+        action="append",
+        default=[],
+        help="context file to analyze (repeatable; auto-detected when omitted)",
+    )
+    s.add_argument(
+        "--input",
+        default=None,
+        help="read a saved model response instead of calling an LLM API",
+    )
+    s.add_argument(
+        "--output",
+        default=None,
+        help="write accepted claims to this YAML file for human review",
+    )
+    s.add_argument(
+        "--max-claims",
+        type=int,
+        default=10,
+        help="maximum accepted claims per invocation (default: 10)",
+    )
+    s.set_defaults(func=_cmd_suggest)
     return p
 
 

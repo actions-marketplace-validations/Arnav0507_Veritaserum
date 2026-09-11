@@ -1,0 +1,48 @@
+{
+  "claims": [
+    {
+      "id": "no-direct-print",
+      "text": "Production Python code does not call print directly.",
+      "type": "forbidden",
+      "severity": "error",
+      "source": "AGENTS.md#L2",
+      "spec": {
+        "globs": ["src/**/*.py"],
+        "pattern": "\\bprint\\s*\\(",
+        "exclude_tests": true,
+        "comment_aware": true
+      }
+    },
+    {
+      "id": "default-port",
+      "text": "Default public port is :8080.",
+      "type": "constant",
+      "severity": "error",
+      "source": "AGENTS.md#L3",
+      "spec": {
+        "globs": ["config.go"],
+        "pattern": "\\bPort\\s+=\\s+\"([^\"]+)\"",
+        "expect": ":8080"
+      }
+    },
+    {
+      "id": "invalid-regex",
+      "text": "This claim has a broken pattern.",
+      "type": "forbidden",
+      "severity": "error",
+      "source": "AGENTS.md#L4",
+      "spec": {
+        "globs": ["**/*.go"],
+        "pattern": "["
+      }
+    },
+    {
+      "id": "missing-spec-field",
+      "text": "Missing required spec fields.",
+      "type": "file_exists",
+      "severity": "error",
+      "source": "AGENTS.md#L5",
+      "spec": {}
+    }
+  ]
+}
