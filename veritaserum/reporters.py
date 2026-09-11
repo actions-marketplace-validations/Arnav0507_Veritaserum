@@ -20,6 +20,45 @@ def _display_location(location: dict[str, Any]) -> str:
     return f"{location['path']}:{location['line']}:{location['column']}"
 
 
+def human_affected(rows: list[dict[str, Any]], summary: dict[str, Any]) -> str:
+    lines: list[str] = []
+    changed = summary.get("changed_files") or []
+    lines.append(
+        f"Changed files ({len(changed)}): "
+        + (", ".join(changed) if changed else "(none)")
+    )
+    lines.append(
+        f"Affected claims ({summary.get('affected_claims', len(rows))}/"
+        f"{summary.get('total_claims', len(rows))})"
+    )
+    lines.append("")
+    for row in rows:
+        stale = " STALE" if row.get("stale") else ""
+        lines.append(
+            f"[{_MARK[row['status']]:>5}] {row['id']:<28} "
+            f"{row['type']:<11} {row['evidence']}{stale}"
+        )
+        for reason in row.get("affected_reasons", [])[:3]:
+            lines.append(f"        because {reason}")
+        if len(row.get("affected_reasons", [])) > 3:
+            extra = len(row["affected_reasons"]) - 3
+            lines.append(f"        because ... and {extra} more reason(s)")
+        for location in row["new_locations"][:5]:
+            lines.append(
+                f"        -> {_display_location(location)}: {location['message']}"
+            )
+    verdict = "FAIL" if summary["failed"] else "PASS"
+    lines.extend(
+        [
+            "",
+            f"== {verdict}  {summary.get('stale', 0)} stale, "
+            f"{summary.get('gating_stale', 0)} gating stale, "
+            f"{summary.get('drifted', 0)} drifted affected claim(s)",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def human(rows: list[dict[str, Any]], summary: dict[str, Any]) -> str:
     lines: list[str] = []
     for row in rows:
@@ -61,12 +100,18 @@ def as_json(rows: list[dict[str, Any]], summary: dict[str, Any]) -> str:
         "new_locations",
         "new_violations",
         "gating",
+        "affected",
+        "affected_reasons",
+        "context_edited",
+        "stale",
     )
     return json.dumps(
         {
             "schema_version": 1,
             "summary": summary,
-            "claims": [{key: row[key] for key in fields} for row in rows],
+            "claims": [
+                {key: row[key] for key in fields if key in row} for row in rows
+            ],
         },
         indent=2,
     )
@@ -194,9 +239,12 @@ def render(
     summary: dict[str, Any],
     *,
     context_files: list[str] | None = None,
+    affected: bool = False,
 ) -> str:
     if format_name == "json":
         return as_json(rows, summary)
     if format_name == "sarif":
         return sarif(rows, summary, context_files=context_files)
+    if affected:
+        return human_affected(rows, summary)
     return human(rows, summary)

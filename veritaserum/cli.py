@@ -15,6 +15,7 @@ from .runner import run, summarize
 from . import reporters
 from . import scaffold
 from . import suggest as suggest_module
+from . import affected as affected_module
 
 EXIT_OK, EXIT_DRIFT, EXIT_ERROR = 0, 1, 2
 
@@ -131,6 +132,88 @@ def _cmd_suggest(a) -> int:
     return EXIT_OK
 
 
+def _cmd_affected(a) -> int:
+    repo = Path(a.repo).resolve()
+    if not repo.is_dir():
+        print(f"affected: repo not found: {repo}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        cfg = load_config(repo, a.config)
+        claims = load_claims(repo, cfg.claims)
+        base = {} if a.no_baseline else load_baseline(repo, cfg.baseline)
+        base_ref, head_ref = affected_module.resolve_base_head(repo, a.base, a.head)
+        changed_files = affected_module.git_changed_files(repo, base_ref, head_ref)
+    except (SchemaError, OSError, ValueError, RuntimeError) as e:
+        print(f"affected: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    if not claims:
+        print("affected: no claims found (check 'claims' globs in .veritaserum.yml)",
+              file=sys.stderr)
+        return EXIT_ERROR
+
+    if not changed_files:
+        print(f"affected: no changed files between {base_ref} and {head_ref}")
+        return EXIT_OK
+
+    matched = affected_module.affected_claims(claims, changed_files, repo=repo)
+    if not matched:
+        print(
+            f"affected: {len(changed_files)} changed file(s), "
+            "but no claims touch them"
+        )
+        for path in changed_files:
+            print(f"  - {path}")
+        return EXIT_OK
+
+    reasons_by_id = {claim.id: reasons for claim, reasons in matched}
+    selected = [claim for claim, _ in matched]
+    try:
+        rows = run(
+            repo,
+            selected,
+            global_exclude=cfg.global_exclude,
+            baseline=base,
+            severity_gate=cfg.severity_gate,
+            naive=a.naive,
+        )
+    except (OSError, UnicodeError, ValueError) as e:
+        print(f"affected: could not check repository: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    rows = affected_module.annotate_affected_rows(
+        rows, reasons_by_id, changed_files=changed_files
+    )
+    summary = affected_module.summarize_affected(
+        rows, changed_files=changed_files, total_claims=len(claims)
+    )
+
+    try:
+        if a.sarif_output:
+            Path(a.sarif_output).write_text(
+                reporters.sarif(rows, summary, context_files=cfg.context_files) + "\n",
+                encoding="utf-8",
+            )
+        out = reporters.render(
+            a.format,
+            rows,
+            summary,
+            context_files=cfg.context_files,
+            affected=True,
+        )
+        if a.output:
+            Path(a.output).write_text(out + "\n", encoding="utf-8")
+            print(f"wrote {a.format} report: {a.output}")
+        else:
+            print(out)
+    except OSError as e:
+        print(f"affected: could not write report: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if a.dry_run or a.warn_only:
+        return EXIT_OK
+    return EXIT_DRIFT if summary["failed"] else EXIT_OK
+
+
 def _cmd_init(a) -> int:
     repo = Path(a.repo).resolve()
     if not repo.is_dir():
@@ -233,6 +316,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="maximum accepted claims per invocation (default: 10)",
     )
     s.set_defaults(func=_cmd_suggest)
+
+    f = sub.add_parser(
+        "affected",
+        help="re-check claims touched by a git diff and flag stale context",
+    )
+    f.add_argument("--repo", default=".")
+    f.add_argument("--config", default=None, help="path to .veritaserum.yml")
+    f.add_argument(
+        "--base",
+        default=None,
+        help="git base ref (default: merge-base with main/master, else HEAD~1)",
+    )
+    f.add_argument("--head", default=None, help="git head ref (default: HEAD)")
+    f.add_argument("--format", choices=["human", "json", "sarif"], default="human")
+    f.add_argument("--output", default=None, help="write report to file instead of stdout")
+    f.add_argument(
+        "--sarif-output",
+        default=None,
+        help="also write a SARIF report (useful with the human CI summary)",
+    )
+    f.add_argument("--naive", action="store_true", help="disable excludes/comment-awareness (eval only)")
+    f.add_argument("--dry-run", action="store_true", help="report but never fail")
+    f.add_argument("--warn-only", action="store_true", help="report stale drift but exit 0")
+    f.add_argument("--no-baseline", action="store_true", help="ignore baseline; gate on all drift")
+    f.set_defaults(func=_cmd_affected)
     return p
 
 

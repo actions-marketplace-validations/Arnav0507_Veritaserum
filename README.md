@@ -201,6 +201,8 @@ veritaserum check [--repo PATH] [--config FILE]
 veritaserum init [--repo PATH] [--force]
 veritaserum suggest [--repo PATH] [--context FILE]...
                     [--input FILE] [--output FILE] [--max-claims N]
+veritaserum affected [--repo PATH] [--base REF] [--head REF]
+                     [--format human|json|sarif] [--warn-only] [--dry-run]
 ```
 
 Exit codes are `0` for pass, `1` for new gating drift, and `2` for configuration,
@@ -232,7 +234,7 @@ action revision, runs one check, writes a job summary, and produces SARIF.
 ```yaml
 - uses: actions/checkout@v4
 - id: veritaserum
-  uses: Arnav0507/veritaserum@v0.2.0
+  uses: Arnav0507/veritaserum@v0.3.0
   with:
     repo: "."
     fail-on-drift: "true"
@@ -248,10 +250,29 @@ Uploading SARIF requires `security-events: write`; see
 The action exposes `failed`, `exit-code`, and `sarif-file` outputs. Configuration
 errors always fail; `fail-on-drift: "false"` suppresses only exit code `1`.
 
+## Stale context on diffs
+
+`veritaserum affected` maps a git diff to the claims it may invalidate, re-checks
+only those claims, and flags **stale** context when code or the anchored instruction
+file changed:
+
+```bash
+veritaserum affected --repo . --base origin/main --head HEAD
+```
+
+Exit code `1` when a stale affected claim crosses the severity gate — useful on
+pull requests to ask “did this change invalidate our AI instructions?” without
+re-running unrelated claims.
+
+In GitHub Actions on a pull request:
+
+```yaml
+- run: veritaserum affected --repo . --base ${{ github.event.pull_request.base.sha }} --head ${{ github.event.pull_request.head.sha }}
+```
+
 ## Roadmap (not yet shipped)
 
-- Map code changes to affected claims and flag stale context on pull requests
-- Propose context updates, then verify proposals with the same deterministic checks
+- Propose context updates when claims go stale, then verify proposals deterministically
 - Broader ingestion for Cursor rules, Copilot instructions, and team-shared context
 
 ## Scope and limitations

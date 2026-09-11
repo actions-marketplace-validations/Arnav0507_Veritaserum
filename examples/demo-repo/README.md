@@ -53,6 +53,12 @@ project.
 When a pull request introduces `fmt.Printf`, the action fails and uploads SARIF
 annotations on the context file line that was violated.
 
+To re-check only claims touched by the diff:
+
+```bash
+veritaserum affected --repo . --base origin/main --head HEAD
+```
+
 ## Next steps
 
 - Run `veritaserum suggest --repo .` to draft additional claims from prose

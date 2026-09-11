@@ -41,3 +41,19 @@ jobs:
           cp -r examples/demo-repo /tmp/demo-drift
           patch -p1 -d /tmp/demo-drift < examples/demo-repo/drift.patch
           veritaserum check --repo /tmp/demo-drift && exit 1 || test $? -eq 1
+
+      - name: Affected claims detect drift on the changed file only
+        run: |
+          cp -r examples/demo-repo /tmp/demo-affected
+          cd /tmp/demo-affected
+          git init -b main
+          git config user.email "ci@example.com"
+          git config user.name "CI"
+          git add -A
+          git commit -m "baseline"
+          BASE=$(git rev-parse HEAD)
+          patch -p1 < "$GITHUB_WORKSPACE/examples/demo-repo/drift.patch"
+          git add main.go
+          git commit -m "introduce drift"
+          HEAD=$(git rev-parse HEAD)
+          veritaserum affected --repo . --base "$BASE" --head "$HEAD" && exit 1 || test $? -eq 1

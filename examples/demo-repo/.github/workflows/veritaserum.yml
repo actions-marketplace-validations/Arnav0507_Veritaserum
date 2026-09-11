@@ -15,7 +15,7 @@ jobs:
 
       - name: Verify AI context
         id: veritaserum
-        uses: Arnav0507/veritaserum@v0.2.0
+        uses: Arnav0507/veritaserum@v0.3.0
         with:
           repo: "."
           fail-on-drift: "true"
