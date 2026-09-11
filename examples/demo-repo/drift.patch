@@ -1,0 +1,12 @@
+--- a/main.go
++++ b/main.go
+@@ -1,7 +1,9 @@
+ package main
+ 
++import "fmt"
+ import "example.com/demo/rest"
+ 
+ func main() {
++	fmt.Printf("debug\n")
+ 	rest.ServerMain()
+ }

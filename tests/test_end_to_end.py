@@ -20,6 +20,7 @@ from veritaserum.schema import validate_relative_path
 
 ROOT = Path(__file__).parents[1]
 FIXTURE = Path(__file__).parent / "fixture_repo"
+DEMO = ROOT / "examples" / "demo-repo"
 
 
 def run_fixture(repo: Path, baseline: dict | None = None, naive: bool = False):
@@ -319,6 +320,22 @@ def test_init_generates_claims_that_pass(tmp_path: Path) -> None:
     (repo / "src").mkdir()
     assert main(["init", "--repo", str(repo)]) == 0
     assert main(["check", "--repo", str(repo)]) == 0
+
+
+def test_demo_repo_passes_when_code_matches_agents_md() -> None:
+    assert main(["check", "--repo", str(DEMO)]) == 0
+
+
+def test_demo_repo_detects_introduced_drift(tmp_path: Path) -> None:
+    repo = tmp_path / "demo"
+    shutil.copytree(DEMO, repo)
+    handler = repo / "main.go"
+    handler.write_text(
+        'package main\n\nimport "fmt"\nimport "example.com/demo/rest"\n\n'
+        'func main() {\n\tfmt.Printf("debug\\n")\n\trest.ServerMain()\n}\n',
+        encoding="utf-8",
+    )
+    assert main(["check", "--repo", str(repo)]) == 1
 
 
 def test_action_is_rooted_and_installs_its_own_checkout() -> None:

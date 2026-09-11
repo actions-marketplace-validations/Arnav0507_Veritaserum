@@ -1,0 +1,41 @@
+schema_version: 1
+claims:
+  - id: demo-no-encoding-json
+    text: "JSON marshaling uses base.JSONMarshal, never encoding/json directly."
+    type: forbidden
+    severity: error
+    source: "AGENTS.md#L5"
+    spec:
+      globs: ["**/*.go"]
+      pattern: '\bjson\.(Marshal|Unmarshal)\b'
+      exclude_tests: true
+
+  - id: demo-no-printf
+    text: "Logging uses base.Infof, never fmt.Printf."
+    type: forbidden
+    severity: error
+    source: "AGENTS.md#L6"
+    spec:
+      globs: ["**/*.go"]
+      pattern: '\bfmt\.Printf\b'
+      exclude_tests: true
+      comment_aware: true
+
+  - id: demo-kebab-names
+    text: "New file names must use kebab-case."
+    type: naming
+    severity: error
+    source: "AGENTS.md#L7"
+    spec:
+      globs: ["ui/*.ts"]
+      name_regex: '^[a-z0-9]+(-[a-z0-9]+)*$'
+
+  - id: demo-port
+    text: "Default public port is :4984."
+    type: constant
+    severity: error
+    source: "AGENTS.md#L8"
+    spec:
+      globs: ["config.go"]
+      pattern: '\bPort\s+=\s+"([^"]+)"'
+      expect: ":4984"
