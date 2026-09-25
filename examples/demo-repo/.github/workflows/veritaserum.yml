@@ -1,11 +1,11 @@
-# Example: add this as .github/workflows/veritaserum.yml in your repo.
 name: AI Context Drift
+
 on:
   pull_request:
 
 permissions:
   contents: read
-  security-events: write   # required to upload SARIF annotations
+  security-events: write
 
 jobs:
   context-drift:
@@ -37,7 +37,6 @@ jobs:
             --base "${{ github.event.pull_request.base.sha }}" \
             --head "${{ github.event.pull_request.head.sha }}"
 
-      # Show drift inline on the PR diff (annotations on the source context file).
       - name: Upload SARIF
         if: always() && hashFiles('veritaserum.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3

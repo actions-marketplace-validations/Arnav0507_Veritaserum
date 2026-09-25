@@ -5,13 +5,18 @@ CI. A claim such as “production code never calls `print`” points back to its
 line in `AGENTS.md`, declares exactly how to check the repository, and produces
 source-located evidence when it drifts.
 
-The tool is intentionally deterministic: it does not ask an LLM to interpret prose.
-Authors translate suitable statements from `AGENTS.md`,
+The tool is intentionally deterministic: **`check` never asks an LLM to interpret
+prose.** Authors translate suitable statements from `AGENTS.md`,
 `.github/copilot-instructions.md`, `CLAUDE.md`, or Cursor rules into a small
 YAML/JSON claim schema. Veritaserum checks those claims against the live checkout.
 A committed baseline lets brownfield repositories suppress known violations while
 still failing on a new file, a changed match, or an additional occurrence in an
 already-baselined file.
+
+This release is the **drift-detection wedge** toward a larger goal: a verified,
+vendor-neutral context layer that stays aligned with the codebase. That broader
+vision is not shipped yet; today Veritaserum detects when instructions and code
+diverge.
 
 ## Install
 
@@ -52,6 +57,48 @@ git add .veritaserum-baseline.json
 
 Later checks return exit code `1` only when drift not represented by that baseline
 meets the configured severity threshold.
+
+## Demo
+
+[`examples/demo-repo/`](examples/demo-repo/) is a minimal Go project where
+`AGENTS.md` conventions are encoded as claims. The code passes today:
+
+```bash
+veritaserum check --repo examples/demo-repo
+```
+
+Apply the bundled drift patch to break the logging rule and watch the check fail
+with evidence anchored at `AGENTS.md#L6`:
+
+```bash
+cp -r examples/demo-repo /tmp/demo-drift
+patch -p1 -d /tmp/demo-drift < examples/demo-repo/drift.patch
+veritaserum check --repo /tmp/demo-drift
+```
+
+See [`examples/demo-repo/README.md`](examples/demo-repo/README.md) for the full
+walkthrough and a ready-to-copy GitHub Actions workflow.
+
+Live demo: [github.com/Arnav0507/veritaserum-demo](https://github.com/Arnav0507/veritaserum-demo)
+(with [PR #1](https://github.com/Arnav0507/veritaserum-demo/pull/1) showing drift detection in CI).
+
+## Draft claims from prose
+
+`veritaserum suggest` uses an LLM to **propose** candidate claims from context
+files. Every proposal is validated by the same strict schema used in CI; invalid
+suggestions are rejected and reported. Nothing is merged automatically.
+
+```bash
+export OPENAI_API_KEY=...   # or VERITASERUM_LLM_API_KEY
+veritaserum suggest --repo . --context AGENTS.md --output claims/suggested.yml
+```
+
+Review the YAML before committing. For offline/testing, pass a saved model
+response with `--input response.json`. Optional environment variables:
+`VERITASERUM_LLM_BASE_URL` (OpenAI-compatible API) and
+`VERITASERUM_LLM_MODEL` (default `gpt-4o-mini`).
+
+`veritaserum init` remains fully deterministic and never calls an LLM.
 
 ## Claim format
 
@@ -152,6 +199,10 @@ veritaserum check [--repo PATH] [--config FILE]
                    [--sarif-output FILE] [--no-baseline]
                    [--update-baseline] [--warn-only] [--dry-run]
 veritaserum init [--repo PATH] [--force]
+veritaserum suggest [--repo PATH] [--context FILE]...
+                    [--input FILE] [--output FILE] [--max-claims N]
+veritaserum affected [--repo PATH] [--base REF] [--head REF]
+                     [--format human|json|sarif] [--warn-only] [--dry-run]
 ```
 
 Exit codes are `0` for pass, `1` for new gating drift, and `2` for configuration,
@@ -183,7 +234,7 @@ action revision, runs one check, writes a job summary, and produces SARIF.
 ```yaml
 - uses: actions/checkout@v4
 - id: veritaserum
-  uses: Arnav0507/veritaserum@v0.2.0
+  uses: Arnav0507/veritaserum@v0.3.0
   with:
     repo: "."
     fail-on-drift: "true"
@@ -199,10 +250,36 @@ Uploading SARIF requires `security-events: write`; see
 The action exposes `failed`, `exit-code`, and `sarif-file` outputs. Configuration
 errors always fail; `fail-on-drift: "false"` suppresses only exit code `1`.
 
+## Stale context on diffs
+
+`veritaserum affected` maps a git diff to the claims it may invalidate, re-checks
+only those claims, and flags **stale** context when code or the anchored instruction
+file changed:
+
+```bash
+veritaserum affected --repo . --base origin/main --head HEAD
+```
+
+Exit code `1` when a stale affected claim crosses the severity gate — useful on
+pull requests to ask “did this change invalidate our AI instructions?” without
+re-running unrelated claims.
+
+In GitHub Actions on a pull request:
+
+```yaml
+- run: veritaserum affected --repo . --base ${{ github.event.pull_request.base.sha }} --head ${{ github.event.pull_request.head.sha }}
+```
+
+## Roadmap (not yet shipped)
+
+- Propose context updates when claims go stale, then verify proposals deterministically
+- Broader ingestion for Cursor rules, Copilot instructions, and team-shared context
+
 ## Scope and limitations
 
-- Claims are authored by people. `init` scaffolds only observable context files,
-  dependencies, package-manager pins, and source directories.
+- Claims are authored by people (or drafted by `suggest` for human review). `init`
+  scaffolds only observable context files, dependencies, package-manager pins, and
+  source directories.
 - Checks are regex- and filesystem-based, not semantic program analysis.
 - A missing input is `UNVERIFIABLE` rather than drift. Unverifiable claims are
   reported but do not currently gate.

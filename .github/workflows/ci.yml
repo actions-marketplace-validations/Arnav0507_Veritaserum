@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Veritaserum
+        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Veritaserum
+        run: python -m pip install --disable-pip-version-check .
+
+      - name: Demo repo passes when code matches AGENTS.md
+        run: veritaserum check --repo examples/demo-repo
+
+      - name: Introduced drift fails the check
+        run: |
+          cp -r examples/demo-repo /tmp/demo-drift
+          patch -p1 -d /tmp/demo-drift < examples/demo-repo/drift.patch
+          veritaserum check --repo /tmp/demo-drift && exit 1 || test $? -eq 1
+
+      - name: Affected claims detect drift on the changed file only
+        run: |
+          cp -r examples/demo-repo /tmp/demo-affected
+          cd /tmp/demo-affected
+          git init -b main
+          git config user.email "ci@example.com"
+          git config user.name "CI"
+          git add -A
+          git commit -m "baseline"
+          BASE=$(git rev-parse HEAD)
+          patch -p1 < "$GITHUB_WORKSPACE/examples/demo-repo/drift.patch"
+          git add main.go
+          git commit -m "introduce drift"
+          HEAD=$(git rev-parse HEAD)
+          veritaserum affected --repo . --base "$BASE" --head "$HEAD" && exit 1 || test $? -eq 1

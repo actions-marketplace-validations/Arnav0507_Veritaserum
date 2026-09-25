@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "veritaserum"
-version = "0.2.0"
+version = "0.3.0"
 description = "Testable AI instructions: verify AI context files against live code, in CI."
 readme = "README.md"
 requires-python = ">=3.9"

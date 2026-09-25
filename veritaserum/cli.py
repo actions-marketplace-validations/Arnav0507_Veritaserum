@@ -14,6 +14,8 @@ from .baseline import load_baseline, write_baseline
 from .runner import run, summarize
 from . import reporters
 from . import scaffold
+from . import suggest as suggest_module
+from . import affected as affected_module
 
 EXIT_OK, EXIT_DRIFT, EXIT_ERROR = 0, 1, 2
 
@@ -71,6 +73,140 @@ def _cmd_check(a) -> int:
             print(out)
     except OSError as e:
         print(f"error: could not write report: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if a.dry_run or a.warn_only:
+        return EXIT_OK
+    return EXIT_DRIFT if summary["failed"] else EXIT_OK
+
+
+def _cmd_suggest(a) -> int:
+    repo = Path(a.repo).resolve()
+    if not repo.is_dir():
+        print(f"suggest: repo not found: {repo}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        result = suggest_module.suggest(
+            repo,
+            context_files=a.context or None,
+            input_path=Path(a.input).resolve() if a.input else None,
+            max_claims=a.max_claims,
+        )
+    except (FileNotFoundError, RuntimeError, SchemaError, OSError, UnicodeError) as e:
+        print(f"suggest: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    for message in result.rejected:
+        print(f"suggest: rejected {message}", file=sys.stderr)
+
+    if not result.accepted:
+        print("suggest: no valid claims produced", file=sys.stderr)
+        return EXIT_ERROR
+
+    document = suggest_module.claims_document(result.accepted)
+    rendered = yaml.safe_dump(document, sort_keys=False)
+    if a.output:
+        try:
+            output_path = Path(a.output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(rendered, encoding="utf-8")
+        except OSError as e:
+            print(f"suggest: could not write output: {e}", file=sys.stderr)
+            return EXIT_ERROR
+        print(
+            f"suggest: wrote {len(result.accepted)} claim(s) to {a.output} "
+            f"({len(result.rejected)} rejected)"
+        )
+    else:
+        print(rendered, end="")
+        if result.rejected:
+            print(
+                f"suggest: {len(result.rejected)} proposal(s) rejected "
+                "(see stderr)",
+                file=sys.stderr,
+            )
+    print(
+        "suggest: review the output before committing; verification stays deterministic",
+        file=sys.stderr,
+    )
+    return EXIT_OK
+
+
+def _cmd_affected(a) -> int:
+    repo = Path(a.repo).resolve()
+    if not repo.is_dir():
+        print(f"affected: repo not found: {repo}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        cfg = load_config(repo, a.config)
+        claims = load_claims(repo, cfg.claims)
+        base = {} if a.no_baseline else load_baseline(repo, cfg.baseline)
+        base_ref, head_ref = affected_module.resolve_base_head(repo, a.base, a.head)
+        changed_files = affected_module.git_changed_files(repo, base_ref, head_ref)
+    except (SchemaError, OSError, ValueError, RuntimeError) as e:
+        print(f"affected: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    if not claims:
+        print("affected: no claims found (check 'claims' globs in .veritaserum.yml)",
+              file=sys.stderr)
+        return EXIT_ERROR
+
+    if not changed_files:
+        print(f"affected: no changed files between {base_ref} and {head_ref}")
+        return EXIT_OK
+
+    matched = affected_module.affected_claims(claims, changed_files, repo=repo)
+    if not matched:
+        print(
+            f"affected: {len(changed_files)} changed file(s), "
+            "but no claims touch them"
+        )
+        for path in changed_files:
+            print(f"  - {path}")
+        return EXIT_OK
+
+    reasons_by_id = {claim.id: reasons for claim, reasons in matched}
+    selected = [claim for claim, _ in matched]
+    try:
+        rows = run(
+            repo,
+            selected,
+            global_exclude=cfg.global_exclude,
+            baseline=base,
+            severity_gate=cfg.severity_gate,
+            naive=a.naive,
+        )
+    except (OSError, UnicodeError, ValueError) as e:
+        print(f"affected: could not check repository: {e}", file=sys.stderr)
+        return EXIT_ERROR
+
+    rows = affected_module.annotate_affected_rows(
+        rows, reasons_by_id, changed_files=changed_files
+    )
+    summary = affected_module.summarize_affected(
+        rows, changed_files=changed_files, total_claims=len(claims)
+    )
+
+    try:
+        if a.sarif_output:
+            Path(a.sarif_output).write_text(
+                reporters.sarif(rows, summary, context_files=cfg.context_files) + "\n",
+                encoding="utf-8",
+            )
+        out = reporters.render(
+            a.format,
+            rows,
+            summary,
+            context_files=cfg.context_files,
+            affected=True,
+        )
+        if a.output:
+            Path(a.output).write_text(out + "\n", encoding="utf-8")
+            print(f"wrote {a.format} report: {a.output}")
+        else:
+            print(out)
+    except OSError as e:
+        print(f"affected: could not write report: {e}", file=sys.stderr)
         return EXIT_ERROR
 
     if a.dry_run or a.warn_only:
@@ -151,6 +287,60 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--repo", default=".")
     i.add_argument("--force", action="store_true")
     i.set_defaults(func=_cmd_init)
+
+    s = sub.add_parser(
+        "suggest",
+        help="draft typed claims from context prose (LLM proposes; schema validates)",
+    )
+    s.add_argument("--repo", default=".")
+    s.add_argument(
+        "--context",
+        action="append",
+        default=[],
+        help="context file to analyze (repeatable; auto-detected when omitted)",
+    )
+    s.add_argument(
+        "--input",
+        default=None,
+        help="read a saved model response instead of calling an LLM API",
+    )
+    s.add_argument(
+        "--output",
+        default=None,
+        help="write accepted claims to this YAML file for human review",
+    )
+    s.add_argument(
+        "--max-claims",
+        type=int,
+        default=10,
+        help="maximum accepted claims per invocation (default: 10)",
+    )
+    s.set_defaults(func=_cmd_suggest)
+
+    f = sub.add_parser(
+        "affected",
+        help="re-check claims touched by a git diff and flag stale context",
+    )
+    f.add_argument("--repo", default=".")
+    f.add_argument("--config", default=None, help="path to .veritaserum.yml")
+    f.add_argument(
+        "--base",
+        default=None,
+        help="git base ref (default: merge-base with main/master, else HEAD~1)",
+    )
+    f.add_argument("--head", default=None, help="git head ref (default: HEAD)")
+    f.add_argument("--format", choices=["human", "json", "sarif"], default="human")
+    f.add_argument("--output", default=None, help="write report to file instead of stdout")
+    f.add_argument(
+        "--sarif-output",
+        default=None,
+        help="also write a SARIF report (useful with the human CI summary)",
+    )
+    f.add_argument("--naive", action="store_true", help="disable excludes/comment-awareness (eval only)")
+    f.add_argument("--dry-run", action="store_true", help="report but never fail")
+    f.add_argument("--warn-only", action="store_true", help="report stale drift but exit 0")
+    f.add_argument("--no-baseline", action="store_true", help="ignore baseline; gate on all drift")
+    f.set_defaults(func=_cmd_affected)
     return p
 
 
